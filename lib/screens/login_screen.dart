@@ -111,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: Text(
-          'Plz Ignore UI 🙏',
+          'Attendance Managament',
           style: GoogleFonts.lato(
             fontSize: 24,
             fontWeight: FontWeight.bold,
