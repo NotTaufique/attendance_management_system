@@ -9,6 +9,7 @@ import 'package:attendance_management_system/screens/teacher_dashboard.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
   final storage = FlutterSecureStorage();
@@ -55,7 +56,7 @@ class MyApp extends StatelessWidget {
       routes: {
         '/': (context) => LoginScreen(),
         '/admin': (context) => AdminDashboard(),
-        '/teacher': (context) => TeacherDashboard(),
+        '/teacher': (context) => TeacherDashboard(assignedClasses: []),
       },
     );
   }

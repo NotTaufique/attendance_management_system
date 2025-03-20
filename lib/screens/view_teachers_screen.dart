@@ -1,62 +1,60 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'edit_teacher_screen.dart'; // Import the Edit Teacher Screen
+import 'edit_teacher_screen.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
 
 class ViewTeachersScreen extends StatefulWidget {
-  const ViewTeachersScreen({super.key});
+  const ViewTeachersScreen({Key? key}) : super(key: key);
 
   @override
   _ViewTeachersScreenState createState() => _ViewTeachersScreenState();
 }
 
 class _ViewTeachersScreenState extends State<ViewTeachersScreen> {
-  List<Map<String, dynamic>> teachers = []; // List to store teacher data
+  List<Map<String, dynamic>> teachers = [];
+  bool isLoading = true; // Added loading state
 
   @override
   void initState() {
     super.initState();
-    fetchTeachers(); // Fetch teachers when the screen initializes
+    fetchTeachers();
   }
 
-  /// Fetch all teachers from Firestore where role == "teacher"
   Future<void> fetchTeachers() async {
+    setState(() {
+      isLoading = true; // Set loading to true
+    });
     try {
-      QuerySnapshot snapshot =
-          await FirebaseFirestore.instance
-              .collection('users')
-              .where('role', isEqualTo: 'teacher') // Query for teachers only
-              .get();
-
-      print('Fetched Teachers Count: ${snapshot.docs.length}'); // Debug
-
-      if (snapshot.docs.isEmpty) {
-        print('No teachers found in Firestore.');
-      }
+      QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'teacher')
+          .get();
 
       setState(() {
-        teachers =
-            snapshot.docs.map((doc) {
-              return {
-                'uid': doc.id.toString(), // UID of the teacher
-                'name':
-                    doc['name'] ??
-                    'No Name', // Use name or fallback to "No Name"
-                'email':
-                    doc['email'] ??
-                    'No Email', // Use email or fallback to "No Email"
-              };
-            }).toList();
+        teachers = snapshot.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return {
+            'uid': doc.id.toString(),
+            'name': data['name'] ?? 'No Name',
+            'email': data['email'] ?? 'No Email',
+            'subjects': List<Map<String, dynamic>>.from(data['subjects'] ?? []),
+          };
+        }).toList();
       });
     } catch (e) {
-      print('Error fetching teachers: $e'); // Debug
+      print('Error fetching teachers: $e');
+    } finally {
+      setState(() {
+        isLoading = false; // Set loading to false after data is fetched
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // AMOLED background
+      backgroundColor: Colors.black,
       appBar: AppBar(
         title: Text(
           'Available Teachers',
@@ -71,73 +69,97 @@ class _ViewTeachersScreenState extends State<ViewTeachersScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
-        child:
-            teachers.isEmpty
-                ? Center(
-                  child: Text(
-                    'No Teachers Found',
-                    style: TextStyle(color: Colors.grey, fontSize: 18),
-                  ),
-                ) // Display if no teachers are available
+        child: isLoading
+            ? Center(
+                child: SpinKitFadingCircle(color: Colors.blueAccent, size: 50), // Loading animation
+              )
+            : teachers.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No Teachers Found',
+                      style: TextStyle(color: Colors.grey, fontSize: 18),
+                    ),
+                  )
                 : ListView.builder(
-                  itemCount: teachers.length,
-                  itemBuilder: (context, index) {
-                    final teacher = teachers[index];
-                    return Card(
-                      color: Color(0xFF161B22), // Dark card background
-                      margin: EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.symmetric(
-                          vertical: 20,
-                          horizontal: 16,
+                    itemCount: teachers.length,
+                    itemBuilder: (context, index) {
+                      final teacher = teachers[index];
+
+                      return Card(
+                        color: const Color(0xFF161B22),
+                        margin: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.blueAccent,
-                          child: Text(
-                            teacher['name'][0].toUpperCase(),
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                        child: ExpansionTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Colors.blueAccent,
+                            child: Text(
+                              teacher['name'][0].toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-                        title: Text(
-                          teacher['name'],
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: Text(
-                          teacher['email'],
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                        trailing: IconButton(
-                          icon: Icon(Icons.edit, color: Colors.blueAccent),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder:
-                                    (context) => EditTeacherScreen(
-                                      teacherId: teacher['uid'],
-                                      currentName: teacher['name'],
-                                      currentEmail: teacher['email'],
-                                      currentClasses: [],
-                                    ),
+                          title: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                teacher['name'],
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ).then((_) => fetchTeachers());
-                          },
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.blueAccent,
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => EditTeacherScreen(
+                                        teacherId: teacher['uid'],
+                                        currentName: teacher['name'], // ✅ Passing Name
+                                      ),
+                                    ),
+                                  ).then((_) => fetchTeachers()); // Refresh
+                                },
+                              ),
+                            ],
+                          ),
+                          children: (teacher['subjects'] as List<dynamic>).isEmpty
+                              ? [
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: 10.0,
+                                      horizontal: 20.0,
+                                    ),
+                                    child: Text(
+                                      'No assigned classes',
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                  ),
+                                ]
+                              : (teacher['subjects'] as List<dynamic>).map((cls) {
+                                  return ListTile(
+                                    title: Text(
+                                      '${cls['class']} - ${cls['subject']}',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
       ),
     );
   }

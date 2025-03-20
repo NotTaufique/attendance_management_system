@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'admin_dashboard.dart';
@@ -25,10 +24,10 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavedCredentialsAndAutoLogin();
+    _loadSavedCredentials();
   }
 
-  Future<void> _loadSavedCredentialsAndAutoLogin() async {
+  Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _rememberMe = prefs.getBool('rememberMe') ?? false;
@@ -37,12 +36,6 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_rememberMe) {
       _emailController.text = await _storage.read(key: 'email') ?? '';
       _passwordController.text = await _storage.read(key: 'password') ?? '';
-
-      // Attempt auto login
-      if (_emailController.text.isNotEmpty &&
-          _passwordController.text.isNotEmpty) {
-        _login();
-      }
     }
   }
 
@@ -80,7 +73,11 @@ class _LoginScreenState extends State<LoginScreen> {
               .get();
 
       if (userDoc.exists) {
-        final String role = userDoc['role'];
+        final userData = userDoc.data();
+        final role = userData?['role'] as String? ?? '';
+
+        debugPrint('✅ Login successful - User Role: $role');
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('userRole', role);
 
@@ -90,19 +87,53 @@ class _LoginScreenState extends State<LoginScreen> {
             MaterialPageRoute(builder: (context) => AdminDashboard()),
           );
         } else if (role == 'teacher') {
+          final assignedClasses =
+              (userData?['subjects'] as List<dynamic>?)
+                  ?.map((subject) => subject as Map<String, dynamic>)
+                  .toList() ??
+              [];
+
+          debugPrint('📚 Assigned Classes: $assignedClasses');
+
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => TeacherDashboard()),
+            MaterialPageRoute(
+              builder:
+                  (context) =>
+                      TeacherDashboard(assignedClasses: assignedClasses),
+            ),
           );
+        } else {
+          _showError('Unknown role assigned. Contact administrator.');
         }
+      } else {
+        _showError('User does not exist in Firestore. Contact administrator.');
+      }
+    } on FirebaseAuthException catch (e) {
+      debugPrint(
+        '🔥 Firebase Auth Error: Code: ${e.code}, Message: ${e.message}',
+      );
+      if (e.code == 'wrong-password' || e.code == 'user-not-found') {
+        _showError('Invalid email or password. Please try again.');
+      } else if (e.code == 'network-request-failed') {
+        _showError('Network error. Check your internet connection.');
+      } else if (e.code == 'too-many-requests') {
+        _showError('Too many login attempts. Please try again later.');
+      } else {
+        _showError('Error: ${e.message}');
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      debugPrint('💥 General Exception: ${e.toString()}');
+      _showError('Unexpected error occurred. Try again later.');
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -110,12 +141,12 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(
-          'Attendance Managament',
-          style: GoogleFonts.lato(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+        title: const Text(
+          'Theem Tracker',
+          style: TextStyle(
             color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
           ),
         ),
         centerTitle: true,
@@ -123,49 +154,80 @@ class _LoginScreenState extends State<LoginScreen> {
         elevation: 0,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Log-in to Your Account',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                fontFamily: 'SF Pro Display',
-              ),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 20),
-            TextFormField(
-              controller: _emailController,
-              style: TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Email',
-                labelStyle: TextStyle(color: Colors.grey),
-                hintText: 'oliveross@gmail.com',
-                hintStyle: TextStyle(color: Colors.grey.shade700),
-                prefixIcon: Icon(Icons.email_outlined, color: Colors.grey),
-                filled: true,
-                fillColor: const Color(0xFF161B22),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                const Text(
+                  'Welcome Back',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 20),
+                _buildTextField(
+                  _emailController,
+                  'Email',
+                  Icons.email_outlined,
+                  false,
+                ),
+                const SizedBox(height: 10),
+                _buildTextField(
+                  _passwordController,
+                  'Password',
+                  Icons.lock_outline,
+                  true,
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _login,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child:
+                      _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text(
+                            'Login',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                ),
+              ],
             ),
-            SizedBox(height: 10),
-            TextFormField(
-              controller: _passwordController,
-              obscureText: !_passwordVisible,
-              style: TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Password',
-                labelStyle: TextStyle(color: Colors.grey),
-                prefixIcon: Icon(Icons.lock_outline, color: Colors.grey),
-                suffixIcon: IconButton(
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField(
+    TextEditingController controller,
+    String label,
+    IconData icon,
+    bool isPassword,
+  ) {
+    return TextField(
+      controller: controller,
+      obscureText: isPassword ? !_passwordVisible : false,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.grey),
+        prefixIcon: Icon(icon, color: Colors.grey),
+        suffixIcon:
+            isPassword
+                ? IconButton(
                   icon: Icon(
                     _passwordVisible ? Icons.visibility : Icons.visibility_off,
                     color: Colors.grey,
@@ -175,63 +237,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       _passwordVisible = !_passwordVisible;
                     });
                   },
-                ),
-                filled: true,
-                fillColor: const Color(0xFF161B22),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Checkbox(
-                      value: _rememberMe,
-                      onChanged: (bool? value) {
-                        setState(() {
-                          _rememberMe = value!;
-                        });
-                      },
-                      activeColor: Colors.blue,
-                    ),
-                    Text('Remember me', style: TextStyle(color: Colors.grey)),
-                  ],
-                ),
-                TextButton(
-                  onPressed: () {
-                    // Handle forgot password logic
-                  },
-                  child: Text(
-                    'Forgot password',
-                    style: TextStyle(color: Colors.blue),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _login,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                padding: EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child:
-                  _isLoading
-                      ? CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                        'Login',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
-                      ),
-            ),
-          ],
+                )
+                : null,
+        filled: true,
+        fillColor: Colors.black,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
         ),
       ),
     );

@@ -5,8 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 class EditStudentScreen extends StatefulWidget {
   final DocumentSnapshot studentData;
 
-  const EditStudentScreen({Key? key, required this.studentData})
-    : super(key: key);
+  const EditStudentScreen({super.key, required this.studentData});
 
   @override
   _EditStudentScreenState createState() => _EditStudentScreenState();

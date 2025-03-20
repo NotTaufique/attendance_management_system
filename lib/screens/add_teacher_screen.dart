@@ -1,182 +1,255 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AddTeacherScreen extends StatefulWidget {
-  const AddTeacherScreen({super.key});
+  final String? teacherId;
+
+  const AddTeacherScreen({super.key, this.teacherId});
 
   @override
   _AddTeacherScreenState createState() => _AddTeacherScreenState();
 }
 
 class _AddTeacherScreenState extends State<AddTeacherScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  List<Map<String, dynamic>> _subjectControllers = [];
+  bool _isLoading = false;
+  bool _isEditing = false;
 
-  final List<String> availableClasses = [
-    "Fe A",
-    "Fe B",
-    "Fe C",
-    "Fe D",
+  final List<String> classOptions = [
+    "FE A",
+    "FE B",
+    "FE C",
+    "FE D",
     "SE Comps",
     "TE Comps",
-    "BE Comps"
-  ]; // List of available classes
+    "BE Comps",
+  ];
 
-  List<String> selectedClasses = []; // Classes selected by the Admin
-
-  Future<void> addTeacher() async {
-    try {
-      // Create teacher in Firebase Authentication
-      final userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
-          );
-
-      // Save teacher details in Firestore
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-            'email': _emailController.text.trim(),
-            'name': _nameController.text.trim(),
-            'role': 'teacher',
-            'assignedClasses': selectedClasses, // Save assigned classes
-          });
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Teacher added successfully!')));
-      _emailController.clear();
-      _passwordController.clear();
-      _nameController.clear();
-      setState(() {
-        selectedClasses = []; // Reset selected classes
-      });
-    } catch (e) {
-      print('Error adding teacher: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to add teacher.')));
+  @override
+  void initState() {
+    super.initState();
+    if (widget.teacherId != null) {
+      _isEditing = true;
+      _loadTeacherData(widget.teacherId!);
     }
+  }
+
+  Future<void> _loadTeacherData(String teacherId) async {
+    try {
+      DocumentSnapshot doc =
+          await FirebaseFirestore.instance.collection('users').doc(teacherId).get();
+      if (doc.exists) {
+        Map data = doc.data() as Map;
+
+        _nameController.text = data['name'] ?? '';
+        _emailController.text = data['email'] ?? '';
+
+        _subjectControllers = List<Map<String, dynamic>>.from(
+          data['subjects'].map(
+            (subject) => {
+              'class': subject['class'],
+              'subject': TextEditingController(text: subject['subject']),
+            },
+          ),
+        );
+
+        setState(() {});
+      } else {
+        debugPrint("⚠️ Teacher document not found.");
+      }
+    } catch (e) {
+      debugPrint('🔥 Error loading teacher data: $e');
+    }
+  }
+
+  void _addSubjectField() {
+    setState(() {
+      _subjectControllers.add({
+        'class': '',
+        'subject': TextEditingController(),
+      });
+    });
+  }
+
+  void _removeSubjectField(int index) {
+    setState(() {
+      _subjectControllers.removeAt(index);
+    });
+  }
+
+  Future<void> _saveTeacher() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    final classSubjects = <String, String>{};
+
+    for (var controller in _subjectControllers) {
+      final className = controller['class'];
+      final subject = controller['subject'].text.trim();
+
+      if (className.isEmpty || subject.isEmpty) {
+        _showError('Please fill all subject fields.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      if (classSubjects.containsKey(className)) {
+        _showError('Class "$className" is already assigned a subject.');
+        setState(() => _isLoading = false);
+        return;
+      }
+      classSubjects[className] = subject;
+    }
+
+    try {
+      final usersCollection = FirebaseFirestore.instance.collection('users');
+
+      if (_isEditing) {
+        await usersCollection.doc(widget.teacherId).update({
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'subjects': classSubjects.entries
+              .map((e) => {'class': e.key, 'subject': e.value})
+              .toList(),
+        });
+        debugPrint('✅ Teacher updated successfully.');
+      } else {
+        final newUser = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+
+        await usersCollection.doc(newUser.user!.uid).set({
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'role': 'teacher',
+          'subjects': classSubjects.entries
+              .map((e) => {'class': e.key, 'subject': e.value})
+              .toList(),
+        });
+
+        debugPrint('✅ New teacher added successfully.');
+      }
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      debugPrint('🔥 Firebase Auth Error: ${e.code}, ${e.message}');
+      _showError(e.message ?? 'An error occurred.');
+    } catch (e) {
+      debugPrint('💥 General Error: $e');
+      _showError('Failed to save teacher.');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // AMOLED background
       appBar: AppBar(
-        title: Text(
-          'Add Teacher',
-          style: GoogleFonts.lato(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
+        title: Text(_isEditing ? 'Edit Teacher' : 'Add Teacher'),
         backgroundColor: Colors.black,
-        elevation: 0,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _nameController,
-              style: TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Name',
-                labelStyle: TextStyle(color: Colors.grey),
-                filled: true,
-                fillColor: Color(0xFF161B22),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (value) => value!.isEmpty ? 'Required' : null,
+              ),
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(labelText: 'Email'),
+                validator: (value) => value!.isEmpty ? 'Required' : null,
+                keyboardType: TextInputType.emailAddress,
+              ),
+              if (!_isEditing)
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  validator: (value) => value!.isEmpty ? 'Required' : null,
+                  obscureText: true,
                 ),
+              const SizedBox(height: 20),
+              const Text(
+                'Subject Assignments:',
+                style: TextStyle(fontSize: 18),
               ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: _emailController,
-              style: TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Email',
-                labelStyle: TextStyle(color: Colors.grey),
-                filled: true,
-                fillColor: Color(0xFF161B22),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              style: TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Password',
-                labelStyle: TextStyle(color: Colors.grey),
-                filled: true,
-                fillColor: Color(0xFF161B22),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            SizedBox(height: 20),
-            Text(
-              'Assign Classes',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: availableClasses.length,
-                itemBuilder: (context, index) {
-                  final className = availableClasses[index];
-                  return CheckboxListTile(
-                    title: Text(
-                      className,
-                      style: TextStyle(color: Colors.white),
+              ..._subjectControllers.asMap().entries.map((entry) {
+                final index = entry.key;
+                final controllers = entry.value;
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: classOptions.contains(controllers['class'])
+                                ? controllers['class']
+                                : null,
+                            hint: const Text('Select Class'),
+                            decoration: const InputDecoration(
+                              labelText: 'Class',
+                            ),
+                            items: classOptions.map((String classOption) {
+                              return DropdownMenuItem<String>(
+                                value: classOption,
+                                child: Text(classOption),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() => controllers['class'] = value!);
+                            },
+                            validator: (value) =>
+                                value == null || value.isEmpty ? 'Required' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: controllers['subject'],
+                            decoration: const InputDecoration(
+                              labelText: 'Subject',
+                            ),
+                            validator: (value) => value!.isEmpty ? 'Required' : null,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          onPressed: () => _removeSubjectField(index),
+                        ),
+                      ],
                     ),
-                    value: selectedClasses.contains(className),
-                    onChanged: (isSelected) {
-                      setState(() {
-                        if (isSelected == true) {
-                          selectedClasses.add(className);
-                        } else {
-                          selectedClasses.remove(className);
-                        }
-                      });
-                    },
-                    activeColor: Colors.blueAccent, // Color for checked state
-                    checkColor: Colors.white, // Color for checkmark
-                  );
-                },
+                    const Divider(),
+                  ],
+                );
+              }),
+              ElevatedButton(
+                onPressed: _addSubjectField,
+                child: const Text('Add Another Subject'),
               ),
-            ),
-            ElevatedButton(
-              onPressed: addTeacher,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                padding: EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _isLoading ? null : _saveTeacher,
+                child: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Save Teacher'),
               ),
-              child: Text("Add Teacher", style: TextStyle(color: Colors.white)),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
